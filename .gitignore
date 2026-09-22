@@ -1,0 +1,6 @@
+.env
+.env.*
+*.log
+credentials*
+secrets*
+node_modules/

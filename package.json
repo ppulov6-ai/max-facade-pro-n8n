@@ -1,0 +1,9 @@
+{
+  "name": "max-facade-pro-n8n",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tests/workflow-logic.test.mjs"
+  }
+}
