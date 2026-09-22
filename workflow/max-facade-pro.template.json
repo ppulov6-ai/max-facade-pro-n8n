@@ -1,5 +1,5 @@
 {
-  "name": "MAX — Фасад PRO — публичный шаблон",
+  "name": "MAX — бот заявок на мебельные фасады (публичный шаблон)",
   "nodes": [
     {
       "parameters": {
@@ -11,7 +11,7 @@
         224,
         -656
       ],
-      "id": "cf4fb54e-e344-4b8d-afe5-6b76e1dd7c91",
+      "id": "8207b429-cc73-46e3-97a3-35eb84057813",
       "name": "Нормализация события"
     },
     {
@@ -38,13 +38,13 @@
         448,
         -656
       ],
-      "id": "38dd7573-123b-4086-ad40-886bb18560be",
+      "id": "89b3aa24-37f2-4a7c-9f95-825cb776b16a",
       "name": "Получить сессию",
       "alwaysOutputData": true
     },
     {
       "parameters": {
-        "jsCode": "const event = $items('Нормализация события')[0].json;\nconst prior = $input.first().json ?? {};\nif (prior.last_event_id && String(prior.last_event_id) === String(event.event_id)) return [];\n\nconst now = new Date();\nconst isoNow = now.toISOString();\nconst localTime = new Intl.DateTimeFormat('ru-RU', {\n  timeZone: 'Asia/Yekaterinburg',\n  year: 'numeric', month: '2-digit', day: '2-digit',\n  hour: '2-digit', minute: '2-digit'\n}).format(now);\n\nconst callbackButton = (text, payload) => ({ type: 'callback', text, payload });\nconst keyboard = (buttons) => [{\n  type: 'inline_keyboard',\n  payload: { buttons }\n}];\nconst servicesKeyboard = keyboard([\n  [callbackButton('🍽 Кухонные фасады', 'service_kitchen')],\n  [callbackButton('🚪 Двери для шкафов-купе', 'service_wardrobe_doors')],\n  [callbackButton('👔 Фасады для гардеробных', 'service_dressing')],\n  [callbackButton('🧩 Другие мебельные фасады', 'service_other')]\n]);\nconst methodKeyboard = keyboard([\n  [callbackButton('📲 Жду звонка', 'method_callback')],\n  [callbackButton('☎️ Связаться самостоятельно', 'method_self')]\n]);\nconst contactKeyboard = keyboard([\n  [{ type: 'request_contact', text: '📱 Передать контакт MAX' }]\n]);\nconst newRequestKeyboard = keyboard([\n  [callbackButton('🔄 Оставить новую заявку', 'new_request')]\n]);\n\nconst welcomeText = 'Здравствуйте! 👋\\n\\nИзготавливаем мебельные фасады на заказ из МДФ и ЛДСП — любой сложности, под ваши размеры и интерьер.\\n\\nСовременное производство, индивидуальный подход и гарантия 1 год. Менеджер поможет подобрать решение и рассчитает стоимость.';\nconst methodText = 'Менеджер Наталья может позвонить вам с 09:00 до 18:00. Или вы можете связаться с ней самостоятельно.';\nconst contactText = 'Чтобы менеджер Наталья могла вам позвонить, передайте свой контакт MAX 👇';\nconst adText = '──────────\\n\\n🤖 Этот бот создал Pulat Safarov\\n\\nСоздаю ботов и сайты. Автоматизирую любые рутинные задачи.\\n\\n📞 REPLACE_WITH_DEVELOPER_PHONE';\nconst serviceNames = {\n  service_kitchen: 'Кухонные фасады',\n  service_wardrobe_doors: 'Двери для шкафов-купе',\n  service_dressing: 'Фасады для гардеробных',\n  service_other: 'Другие мебельные фасады'\n};\n\nlet session = {\n  user_id: String(prior.user_id ?? event.user_id),\n  chat_id: String(event.chat_id ?? prior.chat_id ?? event.user_id),\n  stage: String(prior.stage ?? 'new'),\n  service: String(prior.service ?? ''),\n  connection_method: String(prior.connection_method ?? ''),\n  name: String(prior.name ?? event.name ?? ''),\n  phone: String(prior.phone ?? ''),\n  username: String(prior.username ?? event.username ?? ''),\n  last_event_id: String(event.event_id),\n  application_id: String(prior.application_id ?? ''),\n  manager_notified: String(prior.manager_notified ?? 'false'),\n  updated_at: isoNow\n};\n\nlet clientOutgoing;\nlet managerOutgoing = null;\nlet isLead = false;\nlet status = 'dialog';\n\nconst resendCurrentStep = () => {\n  if (session.stage === 'await_service') {\n    return { text: 'Пожалуйста, выберите услугу кнопкой ниже 👇', attachments: servicesKeyboard };\n  }\n  if (session.stage === 'await_connection_method') {\n    return { text: methodText, attachments: methodKeyboard };\n  }\n  if (session.stage === 'await_contact') {\n    return { text: contactText, attachments: contactKeyboard };\n  }\n  if (session.stage === 'completed') {\n    return {\n      text: 'Ваша заявка уже оформлена ✅\\n\\nЕсли хотите оставить ещё одну, нажмите кнопку ниже.',\n      attachments: newRequestKeyboard\n    };\n  }\n  return { text: welcomeText, attachments: servicesKeyboard };\n};\n\nconst startAgain = !prior.user_id || event.event_type === 'bot_started' || event.callback_payload === 'new_request';\nif (startAgain) {\n  session = {\n    ...session,\n    stage: 'await_service',\n    service: '',\n    connection_method: '',\n    name: String(event.name ?? prior.name ?? ''),\n    phone: '',\n    application_id: '',\n    manager_notified: 'false'\n  };\n  clientOutgoing = { text: welcomeText, attachments: servicesKeyboard };\n} else if (session.stage === 'await_service' && serviceNames[event.callback_payload]) {\n  session.service = serviceNames[event.callback_payload];\n  session.stage = 'await_connection_method';\n  clientOutgoing = { text: methodText, attachments: methodKeyboard };\n} else if (session.stage === 'await_connection_method' && event.callback_payload === 'method_callback') {\n  session.connection_method = 'Ждёт звонка';\n  session.stage = 'await_contact';\n  clientOutgoing = { text: contactText, attachments: contactKeyboard };\n} else if (session.stage === 'await_connection_method' && event.callback_payload === 'method_self') {\n  session.connection_method = 'Свяжется самостоятельно';\n  session.application_id = 'max-' + session.user_id + '-' + String(event.event_id).replace(/[^a-zA-Z0-9_-]/g, '-');\n  session.name = session.name || event.name || 'не указано';\n  isLead = true;\n  status = 'new';\n  const usernameLine = session.username ? '\\nUsername: @' + session.username : '';\n  managerOutgoing = {\n    text: '🔔 Клиент решил связаться самостоятельно\\n\\nУслуга: ' + session.service +\n      '\\nКлиент в MAX: ' + session.name + usernameLine +\n      '\\nMAX ID: ' + session.user_id +\n      '\\nЧат ID: ' + session.chat_id +\n      '\\n\\nТелефон клиента не запрашивался.' +\n      '\\nЗаявка получена: ' + localTime\n  };\n  clientOutgoing = {\n    text: 'Свяжитесь с менеджером Натальей самостоятельно:\\n\\n📞 REPLACE_WITH_MANAGER_PHONE\\n\\nРабочее время: с 09:00 до 18:00.\\n\\n' + adText,\n    format: 'markdown',\n    attachments: newRequestKeyboard\n  };\n} else if (session.stage === 'await_contact' && event.contact_received && event.phone) {\n  session.connection_method = 'Ждёт звонка';\n  session.name = event.name || session.name || 'не указано';\n  session.phone = event.phone;\n  session.username = event.username || session.username;\n  session.application_id = 'max-' + session.user_id + '-' + String(event.event_id).replace(/[^a-zA-Z0-9_-]/g, '-');\n  isLead = true;\n  status = 'new';\n  const usernameLine = session.username ? '\\nUsername: @' + session.username : '';\n  managerOutgoing = {\n    text: '🔔 Новая заявка\\n\\nУслуга: ' + session.service +\n      '\\nКлиент: ' + session.name +\n      '\\nТелефон: ' + session.phone + usernameLine +\n      '\\nMAX ID: ' + session.user_id +\n      '\\nЧат ID: ' + session.chat_id +\n      '\\n\\nСтатус: ждёт звонка с 09:00 до 18:00' +\n      '\\nЗаявка получена: ' + localTime\n  };\n  clientOutgoing = {\n    text: 'Спасибо, ' + session.name + '! Ваш контакт получен ✅\\n\\nМенеджер Наталья свяжется с вами с 09:00 до 18:00.\\n\\n' + adText,\n    format: 'markdown',\n    attachments: newRequestKeyboard\n  };\n} else {\n  clientOutgoing = resendCurrentStep();\n}\n\nreturn [{\n  json: {\n    ...session,\n    is_lead: isLead,\n    created_at: isoNow,\n    status,\n    client_outgoing: clientOutgoing,\n    manager_outgoing: managerOutgoing\n  }\n}];"
+        "jsCode": "const event = $items('Нормализация события')[0].json;\nconst prior = $input.first().json ?? {};\nif (prior.last_event_id && String(prior.last_event_id) === String(event.event_id)) return [];\n\nconst now = new Date();\nconst isoNow = now.toISOString();\nconst localTime = new Intl.DateTimeFormat('ru-RU', {\n  timeZone: 'UTC',\n  year: 'numeric', month: '2-digit', day: '2-digit',\n  hour: '2-digit', minute: '2-digit'\n}).format(now);\n\nconst callbackButton = (text, payload) => ({ type: 'callback', text, payload });\nconst keyboard = (buttons) => [{\n  type: 'inline_keyboard',\n  payload: { buttons }\n}];\nconst servicesKeyboard = keyboard([\n  [callbackButton('🍽 Кухонные фасады', 'service_kitchen')],\n  [callbackButton('🚪 Двери для шкафов-купе', 'service_wardrobe_doors')],\n  [callbackButton('👔 Фасады для гардеробных', 'service_dressing')],\n  [callbackButton('🧩 Другие мебельные фасады', 'service_other')]\n]);\nconst methodKeyboard = keyboard([\n  [callbackButton('📲 Жду звонка', 'method_callback')],\n  [callbackButton('☎️ Связаться самостоятельно', 'method_self')]\n]);\nconst contactKeyboard = keyboard([\n  [{ type: 'request_contact', text: '📱 Передать контакт MAX' }]\n]);\nconst newRequestKeyboard = keyboard([\n  [callbackButton('🔄 Оставить новую заявку', 'new_request')]\n]);\n\nconst welcomeText = 'Здравствуйте! 👋\\n\\nИзготавливаем мебельные фасады на заказ из МДФ и ЛДСП — любой сложности, под ваши размеры и интерьер.\\n\\nСовременное производство, индивидуальный подход и гарантия 1 год. Менеджер поможет подобрать решение и рассчитает стоимость.';\nconst methodText = 'Менеджер REPLACE_WITH_MANAGER_NAME может позвонить вам с 09:00 до 18:00. Или вы можете связаться с ней самостоятельно.';\nconst contactText = 'Чтобы менеджер мог вам позвонить, передайте свой контакт MAX 👇';\nconst adText = '──────────\\n\\n🤖 Этот бот помогает автоматизировать приём заявок\\n\\nСоздаю ботов и сайты. Автоматизирую любые рутинные задачи.\\n\\n📞 REPLACE_WITH_DEVELOPER_PHONE';\nconst serviceNames = {\n  service_kitchen: 'Кухонные фасады',\n  service_wardrobe_doors: 'Двери для шкафов-купе',\n  service_dressing: 'Фасады для гардеробных',\n  service_other: 'Другие мебельные фасады'\n};\n\nlet session = {\n  user_id: String(prior.user_id ?? event.user_id),\n  chat_id: String(event.chat_id ?? prior.chat_id ?? event.user_id),\n  stage: String(prior.stage ?? 'new'),\n  service: String(prior.service ?? ''),\n  connection_method: String(prior.connection_method ?? ''),\n  name: String(prior.name ?? event.name ?? ''),\n  phone: String(prior.phone ?? ''),\n  username: String(prior.username ?? event.username ?? ''),\n  last_event_id: String(event.event_id),\n  application_id: String(prior.application_id ?? ''),\n  manager_notified: String(prior.manager_notified ?? 'false'),\n  updated_at: isoNow\n};\n\nlet clientOutgoing;\nlet managerOutgoing = null;\nlet isLead = false;\nlet status = 'dialog';\n\nconst resendCurrentStep = () => {\n  if (session.stage === 'await_service') {\n    return { text: 'Пожалуйста, выберите услугу кнопкой ниже 👇', attachments: servicesKeyboard };\n  }\n  if (session.stage === 'await_connection_method') {\n    return { text: methodText, attachments: methodKeyboard };\n  }\n  if (session.stage === 'await_contact') {\n    return { text: contactText, attachments: contactKeyboard };\n  }\n  if (session.stage === 'completed') {\n    return {\n      text: 'Ваша заявка уже оформлена ✅\\n\\nЕсли хотите оставить ещё одну, нажмите кнопку ниже.',\n      attachments: newRequestKeyboard\n    };\n  }\n  return { text: welcomeText, attachments: servicesKeyboard };\n};\n\nconst startAgain = !prior.user_id || event.event_type === 'bot_started' || event.callback_payload === 'new_request';\nif (startAgain) {\n  session = {\n    ...session,\n    stage: 'await_service',\n    service: '',\n    connection_method: '',\n    name: String(event.name ?? prior.name ?? ''),\n    phone: '',\n    application_id: '',\n    manager_notified: 'false'\n  };\n  clientOutgoing = { text: welcomeText, attachments: servicesKeyboard };\n} else if (session.stage === 'await_service' && serviceNames[event.callback_payload]) {\n  session.service = serviceNames[event.callback_payload];\n  session.stage = 'await_connection_method';\n  clientOutgoing = { text: methodText, attachments: methodKeyboard };\n} else if (session.stage === 'await_connection_method' && event.callback_payload === 'method_callback') {\n  session.connection_method = 'Ждёт звонка';\n  session.stage = 'await_contact';\n  clientOutgoing = { text: contactText, attachments: contactKeyboard };\n} else if (session.stage === 'await_connection_method' && event.callback_payload === 'method_self') {\n  session.connection_method = 'Свяжется самостоятельно';\n  session.application_id = 'max-' + session.user_id + '-' + String(event.event_id).replace(/[^a-zA-Z0-9_-]/g, '-');\n  session.name = session.name || event.name || 'не указано';\n  isLead = true;\n  status = 'new';\n  const usernameLine = session.username ? '\\nUsername: @' + session.username : '';\n  managerOutgoing = {\n    text: '🔔 Клиент решил связаться самостоятельно\\n\\nУслуга: ' + session.service +\n      '\\nКлиент в MAX: ' + session.name + usernameLine +\n      '\\nMAX ID: ' + session.user_id +\n      '\\nЧат ID: ' + session.chat_id +\n      '\\n\\nТелефон клиента не запрашивался.' +\n      '\\nЗаявка получена: ' + localTime\n  };\n  clientOutgoing = {\n    text: 'Свяжитесь с менеджером самостоятельно:\\n\\n📞 REPLACE_WITH_MANAGER_PHONE\\n\\nРабочее время: с 09:00 до 18:00.\\n\\n' + adText,\n    format: 'markdown',\n    attachments: newRequestKeyboard\n  };\n} else if (session.stage === 'await_contact' && event.contact_received && event.phone) {\n  session.connection_method = 'Ждёт звонка';\n  session.name = event.name || session.name || 'не указано';\n  session.phone = event.phone;\n  session.username = event.username || session.username;\n  session.application_id = 'max-' + session.user_id + '-' + String(event.event_id).replace(/[^a-zA-Z0-9_-]/g, '-');\n  isLead = true;\n  status = 'new';\n  const usernameLine = session.username ? '\\nUsername: @' + session.username : '';\n  managerOutgoing = {\n    text: '🔔 Новая заявка\\n\\nУслуга: ' + session.service +\n      '\\nКлиент: ' + session.name +\n      '\\nТелефон: ' + session.phone + usernameLine +\n      '\\nMAX ID: ' + session.user_id +\n      '\\nЧат ID: ' + session.chat_id +\n      '\\n\\nСтатус: ждёт звонка с 09:00 до 18:00' +\n      '\\nЗаявка получена: ' + localTime\n  };\n  clientOutgoing = {\n    text: 'Спасибо, ' + session.name + '! Ваш контакт получен ✅\\n\\nМенеджер REPLACE_WITH_MANAGER_NAME свяжется с вами с 09:00 до 18:00.\\n\\n' + adText,\n    format: 'markdown',\n    attachments: newRequestKeyboard\n  };\n} else {\n  clientOutgoing = resendCurrentStep();\n}\n\nreturn [{\n  json: {\n    ...session,\n    is_lead: isLead,\n    created_at: isoNow,\n    status,\n    client_outgoing: clientOutgoing,\n    manager_outgoing: managerOutgoing\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -52,7 +52,7 @@
         672,
         -656
       ],
-      "id": "862f4779-894e-4d79-b84e-8c1a4c5123f2",
+      "id": "9838aaa0-ed2e-4748-ac01-bb9a34e7932e",
       "name": "Сценарий бота"
     },
     {
@@ -86,7 +86,7 @@
         896,
         -656
       ],
-      "id": "58d960cb-6119-49a2-8e00-d30e70c70dad",
+      "id": "10f4db56-3762-414c-b924-4af8bc63f68f",
       "name": "Есть новая заявка?"
     },
     {
@@ -99,7 +99,7 @@
         1344,
         -736
       ],
-      "id": "fa39f32f-175e-4804-aea1-59e61a1dfcb3",
+      "id": "c53eb21a-0ff8-4add-947e-c10e5e27a0db",
       "name": "Завершить заявку"
     },
     {
@@ -112,7 +112,7 @@
         1568,
         -656
       ],
-      "id": "0c40a347-e0d3-41f4-a36a-58537debaeae",
+      "id": "26a95b7a-26da-43b8-92a8-797c99f8965c",
       "name": "Данные сессии"
     },
     {
@@ -146,7 +146,7 @@
         2016,
         -656
       ],
-      "id": "2481036c-430a-4dbb-826d-817134258449",
+      "id": "5e77ad5a-8158-42ba-97cc-015f041146e0",
       "name": "Сохранить заявку?"
     },
     {
@@ -159,7 +159,7 @@
         2240,
         -736
       ],
-      "id": "7bb6dff2-ecac-47f1-bfe2-9eda5a3fa98e",
+      "id": "842660bd-1df8-49c3-be6c-84d15912e885",
       "name": "Данные заявки"
     },
     {
@@ -172,13 +172,13 @@
         2688,
         -656
       ],
-      "id": "b786fab4-74c5-451a-9278-5b8b0063999f",
+      "id": "a9e22e88-5955-4b02-8451-b652a099c8da",
       "name": "Пауза 1 секунда"
     },
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "max-facade-pro-demo",
+        "path": "REPLACE_WITH_UNIQUE_WEBHOOK_PATH",
         "authentication": "headerAuth",
         "options": {}
       },
@@ -188,7 +188,7 @@
         0,
         -656
       ],
-      "id": "6df2aac9-8d6e-4833-b7bd-e604d70a26fb",
+      "id": "978df3ce-60cd-40a3-9cb0-ae66c9dc2bad",
       "name": "Вебхук MAX"
     },
     {
@@ -208,7 +208,7 @@
         1120,
         -736
       ],
-      "id": "ddea4e9f-b1e6-4201-8913-db25be59a297",
+      "id": "e0dfc441-39a6-4c5f-ad44-6046f673b017",
       "name": "Уведомить менеджера",
       "retryOnFail": true
     },
@@ -365,7 +365,7 @@
         1792,
         -656
       ],
-      "id": "e2ded3d8-6c24-497d-b033-4c4d94f57524",
+      "id": "fb2ceb99-9d4d-473f-ab1d-d3dea1acc901",
       "name": "Сохранить сессию"
     },
     {
@@ -511,7 +511,7 @@
         2464,
         -736
       ],
-      "id": "d668d409-c449-4f0c-9fd8-fbc6efa2c964",
+      "id": "b0f707c4-d7ae-40fd-9a72-798742f52686",
       "name": "Сохранить заявку"
     },
     {
@@ -540,7 +540,7 @@
         2912,
         -656
       ],
-      "id": "4efa8871-e867-4cd8-a413-81e806d252f2",
+      "id": "8f44b989-9256-48da-afb2-c82ccb5b5d14",
       "name": "Ответ клиенту",
       "retryOnFail": true
     }
