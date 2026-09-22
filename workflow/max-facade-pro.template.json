@@ -1,0 +1,715 @@
+{
+  "name": "MAX — Фасад PRO — публичный шаблон",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const envelope = $input.first().json ?? {};\nconst body = envelope.body ?? envelope;\nconst update = Array.isArray(body.updates)\n  ? (body.updates[0] ?? {})\n  : (body.update ?? body);\n\nconst eventType = String(update.update_type ?? '');\nif (!['bot_started', 'message_created', 'message_callback'].includes(eventType)) {\n  return [];\n}\n\nconst message = update.message ?? {};\nconst messageBody = message.body ?? {};\nconst callback = update.callback ?? {};\nconst callbackUser = callback.user ?? {};\nconst sender = message.sender ?? {};\nconst updateUser = update.user ?? {};\nconst user = eventType === 'message_callback'\n  ? (callbackUser.user_id ? callbackUser : (updateUser.user_id ? updateUser : sender))\n  : (sender.user_id ? sender : updateUser);\n\nconst userIdValue = user.user_id ?? update.user_id;\nif (userIdValue === undefined || userIdValue === null || String(userIdValue) === '') {\n  return [];\n}\n\nconst userId = String(userIdValue);\nconst chatId = String(\n  update.chat_id ??\n  message.recipient?.chat_id ??\n  callback.chat_id ??\n  userId\n);\nconst callbackPayload = eventType === 'message_callback'\n  ? String(callback.payload ?? '')\n  : '';\nconst text = String(messageBody.text ?? '');\nconst attachments = Array.isArray(messageBody.attachments)\n  ? messageBody.attachments\n  : [];\nconst contact = attachments.find((attachment) => attachment?.type === 'contact');\nconst contactPayload = contact?.payload ?? {};\nconst vcfInfo = String(contactPayload.vcf_info ?? contactPayload.vcfInfo ?? '');\nconst hash = String(contactPayload.hash ?? '');\nconst maxInfo = contactPayload.max_info ?? contactPayload.maxInfo ?? {};\n\nconst phoneMatch = vcfInfo.match(/(?:^|\\r?\\n)TEL(?:;[^:\\r\\n]*)?:([^\\r\\n]+)/i);\nconst phoneDigits = String(phoneMatch?.[1] ?? '').replace(/\\D/g, '');\nlet phone = '';\nif (phoneDigits.length >= 10 && phoneDigits.length <= 15) {\n  if (phoneDigits.length === 11 && phoneDigits.startsWith('8')) {\n    phone = '+7' + phoneDigits.slice(1);\n  } else {\n    phone = '+' + phoneDigits;\n  }\n}\n\nconst maxInfoId = maxInfo.user_id ?? maxInfo.userId;\nconst contactReceived = Boolean(\n  contact &&\n  hash &&\n  vcfInfo &&\n  phone &&\n  (maxInfoId === undefined || String(maxInfoId) === userId)\n);\n\nconst firstName = String(user.first_name ?? maxInfo.first_name ?? '').trim();\nconst lastName = String(user.last_name ?? maxInfo.last_name ?? '').trim();\nconst vcfNameMatch = vcfInfo.match(/(?:^|\\r?\\n)FN(?:;[^:\\r\\n]*)?:([^\\r\\n]+)/i);\nconst name = (\n  [firstName, lastName].filter(Boolean).join(' ') ||\n  String(user.name ?? maxInfo.name ?? vcfNameMatch?.[1] ?? '')\n).trim();\nconst username = String(user.username ?? maxInfo.username ?? '').trim();\nconst messageId = messageBody.mid ?? message.mid ?? update.message_id;\nconst eventId = String(\n  update.update_id ??\n  update.event_id ??\n  callback.callback_id ??\n  messageId ??\n  [eventType, update.timestamp ?? '', userId, chatId, callbackPayload, text].join(':')\n);\n\nreturn [{\n  json: {\n    event_type: eventType,\n    event_id: eventId,\n    user_id: userId,\n    chat_id: chatId,\n    callback_payload: callbackPayload,\n    text,\n    name,\n    phone,\n    username,\n    contact_received: contactReceived,\n    received_at: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -656
+      ],
+      "id": "cf4fb54e-e344-4b8d-afe5-6b76e1dd7c91",
+      "name": "Нормализация события"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SESSIONS_TABLE_ID",
+          "mode": "id"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "user_id",
+              "keyValue": "=$json.user_id"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        -656
+      ],
+      "id": "38dd7573-123b-4086-ad40-886bb18560be",
+      "name": "Получить сессию",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const event = $items('Нормализация события')[0].json;\nconst prior = $input.first().json ?? {};\nif (prior.last_event_id && String(prior.last_event_id) === String(event.event_id)) return [];\n\nconst now = new Date();\nconst isoNow = now.toISOString();\nconst localTime = new Intl.DateTimeFormat('ru-RU', {\n  timeZone: 'Asia/Yekaterinburg',\n  year: 'numeric', month: '2-digit', day: '2-digit',\n  hour: '2-digit', minute: '2-digit'\n}).format(now);\n\nconst callbackButton = (text, payload) => ({ type: 'callback', text, payload });\nconst keyboard = (buttons) => [{\n  type: 'inline_keyboard',\n  payload: { buttons }\n}];\nconst servicesKeyboard = keyboard([\n  [callbackButton('🍽 Кухонные фасады', 'service_kitchen')],\n  [callbackButton('🚪 Двери для шкафов-купе', 'service_wardrobe_doors')],\n  [callbackButton('👔 Фасады для гардеробных', 'service_dressing')],\n  [callbackButton('🧩 Другие мебельные фасады', 'service_other')]\n]);\nconst methodKeyboard = keyboard([\n  [callbackButton('📲 Жду звонка', 'method_callback')],\n  [callbackButton('☎️ Связаться самостоятельно', 'method_self')]\n]);\nconst contactKeyboard = keyboard([\n  [{ type: 'request_contact', text: '📱 Передать контакт MAX' }]\n]);\nconst newRequestKeyboard = keyboard([\n  [callbackButton('🔄 Оставить новую заявку', 'new_request')]\n]);\n\nconst welcomeText = 'Здравствуйте! 👋\\n\\nИзготавливаем мебельные фасады на заказ из МДФ и ЛДСП — любой сложности, под ваши размеры и интерьер.\\n\\nСовременное производство, индивидуальный подход и гарантия 1 год. Менеджер поможет подобрать решение и рассчитает стоимость.';\nconst methodText = 'Менеджер Наталья может позвонить вам с 09:00 до 18:00. Или вы можете связаться с ней самостоятельно.';\nconst contactText = 'Чтобы менеджер Наталья могла вам позвонить, передайте свой контакт MAX 👇';\nconst adText = '──────────\\n\\n🤖 Этот бот создал Pulat Safarov\\n\\nСоздаю ботов и сайты. Автоматизирую любые рутинные задачи.\\n\\n📞 REPLACE_WITH_DEVELOPER_PHONE';\nconst serviceNames = {\n  service_kitchen: 'Кухонные фасады',\n  service_wardrobe_doors: 'Двери для шкафов-купе',\n  service_dressing: 'Фасады для гардеробных',\n  service_other: 'Другие мебельные фасады'\n};\n\nlet session = {\n  user_id: String(prior.user_id ?? event.user_id),\n  chat_id: String(event.chat_id ?? prior.chat_id ?? event.user_id),\n  stage: String(prior.stage ?? 'new'),\n  service: String(prior.service ?? ''),\n  connection_method: String(prior.connection_method ?? ''),\n  name: String(prior.name ?? event.name ?? ''),\n  phone: String(prior.phone ?? ''),\n  username: String(prior.username ?? event.username ?? ''),\n  last_event_id: String(event.event_id),\n  application_id: String(prior.application_id ?? ''),\n  manager_notified: String(prior.manager_notified ?? 'false'),\n  updated_at: isoNow\n};\n\nlet clientOutgoing;\nlet managerOutgoing = null;\nlet isLead = false;\nlet status = 'dialog';\n\nconst resendCurrentStep = () => {\n  if (session.stage === 'await_service') {\n    return { text: 'Пожалуйста, выберите услугу кнопкой ниже 👇', attachments: servicesKeyboard };\n  }\n  if (session.stage === 'await_connection_method') {\n    return { text: methodText, attachments: methodKeyboard };\n  }\n  if (session.stage === 'await_contact') {\n    return { text: contactText, attachments: contactKeyboard };\n  }\n  if (session.stage === 'completed') {\n    return {\n      text: 'Ваша заявка уже оформлена ✅\\n\\nЕсли хотите оставить ещё одну, нажмите кнопку ниже.',\n      attachments: newRequestKeyboard\n    };\n  }\n  return { text: welcomeText, attachments: servicesKeyboard };\n};\n\nconst startAgain = !prior.user_id || event.event_type === 'bot_started' || event.callback_payload === 'new_request';\nif (startAgain) {\n  session = {\n    ...session,\n    stage: 'await_service',\n    service: '',\n    connection_method: '',\n    name: String(event.name ?? prior.name ?? ''),\n    phone: '',\n    application_id: '',\n    manager_notified: 'false'\n  };\n  clientOutgoing = { text: welcomeText, attachments: servicesKeyboard };\n} else if (session.stage === 'await_service' && serviceNames[event.callback_payload]) {\n  session.service = serviceNames[event.callback_payload];\n  session.stage = 'await_connection_method';\n  clientOutgoing = { text: methodText, attachments: methodKeyboard };\n} else if (session.stage === 'await_connection_method' && event.callback_payload === 'method_callback') {\n  session.connection_method = 'Ждёт звонка';\n  session.stage = 'await_contact';\n  clientOutgoing = { text: contactText, attachments: contactKeyboard };\n} else if (session.stage === 'await_connection_method' && event.callback_payload === 'method_self') {\n  session.connection_method = 'Свяжется самостоятельно';\n  session.application_id = 'max-' + session.user_id + '-' + String(event.event_id).replace(/[^a-zA-Z0-9_-]/g, '-');\n  session.name = session.name || event.name || 'не указано';\n  isLead = true;\n  status = 'new';\n  const usernameLine = session.username ? '\\nUsername: @' + session.username : '';\n  managerOutgoing = {\n    text: '🔔 Клиент решил связаться самостоятельно\\n\\nУслуга: ' + session.service +\n      '\\nКлиент в MAX: ' + session.name + usernameLine +\n      '\\nMAX ID: ' + session.user_id +\n      '\\nЧат ID: ' + session.chat_id +\n      '\\n\\nТелефон клиента не запрашивался.' +\n      '\\nЗаявка получена: ' + localTime\n  };\n  clientOutgoing = {\n    text: 'Свяжитесь с менеджером Натальей самостоятельно:\\n\\n📞 REPLACE_WITH_MANAGER_PHONE\\n\\nРабочее время: с 09:00 до 18:00.\\n\\n' + adText,\n    format: 'markdown',\n    attachments: newRequestKeyboard\n  };\n} else if (session.stage === 'await_contact' && event.contact_received && event.phone) {\n  session.connection_method = 'Ждёт звонка';\n  session.name = event.name || session.name || 'не указано';\n  session.phone = event.phone;\n  session.username = event.username || session.username;\n  session.application_id = 'max-' + session.user_id + '-' + String(event.event_id).replace(/[^a-zA-Z0-9_-]/g, '-');\n  isLead = true;\n  status = 'new';\n  const usernameLine = session.username ? '\\nUsername: @' + session.username : '';\n  managerOutgoing = {\n    text: '🔔 Новая заявка\\n\\nУслуга: ' + session.service +\n      '\\nКлиент: ' + session.name +\n      '\\nТелефон: ' + session.phone + usernameLine +\n      '\\nMAX ID: ' + session.user_id +\n      '\\nЧат ID: ' + session.chat_id +\n      '\\n\\nСтатус: ждёт звонка с 09:00 до 18:00' +\n      '\\nЗаявка получена: ' + localTime\n  };\n  clientOutgoing = {\n    text: 'Спасибо, ' + session.name + '! Ваш контакт получен ✅\\n\\nМенеджер Наталья свяжется с вами с 09:00 до 18:00.\\n\\n' + adText,\n    format: 'markdown',\n    attachments: newRequestKeyboard\n  };\n} else {\n  clientOutgoing = resendCurrentStep();\n}\n\nreturn [{\n  json: {\n    ...session,\n    is_lead: isLead,\n    created_at: isoNow,\n    status,\n    client_outgoing: clientOutgoing,\n    manager_outgoing: managerOutgoing\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        -656
+      ],
+      "id": "862f4779-894e-4d79-b84e-8c1a4c5123f2",
+      "name": "Сценарий бота"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8c7f3fef-8e0a-4f5a-a454-bddaa1a7057e",
+              "leftValue": "={{ $json.is_lead }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        -656
+      ],
+      "id": "58d960cb-6119-49a2-8e00-d30e70c70dad",
+      "name": "Есть новая заявка?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $items('Сценарий бота')[0].json;\nreturn [{\n  json: {\n    ...source,\n    stage: 'completed',\n    manager_notified: 'true',\n    updated_at: new Date().toISOString(),\n    status: 'new'\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        -736
+      ],
+      "id": "fa39f32f-175e-4804-aea1-59e61a1dfcb3",
+      "name": "Завершить заявку"
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $input.first().json;\nreturn [{\n  json: {\n    user_id: String(source.user_id ?? ''),\n    chat_id: String(source.chat_id ?? ''),\n    stage: String(source.stage ?? ''),\n    service: String(source.service ?? ''),\n    connection_method: String(source.connection_method ?? ''),\n    name: String(source.name ?? ''),\n    phone: String(source.phone ?? ''),\n    username: String(source.username ?? ''),\n    last_event_id: String(source.last_event_id ?? ''),\n    application_id: String(source.application_id ?? ''),\n    manager_notified: String(source.manager_notified ?? 'false'),\n    updated_at: String(source.updated_at ?? new Date().toISOString())\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        -656
+      ],
+      "id": "0c40a347-e0d3-41f4-a36a-58537debaeae",
+      "name": "Данные сессии"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c589596f-1b98-44cf-9bd3-19a2f160643d",
+              "leftValue": "={{ $('Сценарий бота').first().json.is_lead }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2016,
+        -656
+      ],
+      "id": "2481036c-430a-4dbb-826d-817134258449",
+      "name": "Сохранить заявку?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $items('Завершить заявку')[0].json;\nreturn [{\n  json: {\n    application_id: String(source.application_id ?? ''),\n    created_at: String(source.created_at ?? new Date().toISOString()),\n    service: String(source.service ?? ''),\n    connection_method: String(source.connection_method ?? ''),\n    name: String(source.name ?? ''),\n    phone: String(source.phone ?? ''),\n    username: String(source.username ?? ''),\n    user_id: String(source.user_id ?? ''),\n    chat_id: String(source.chat_id ?? ''),\n    manager_notified: 'true',\n    status: String(source.status ?? 'new')\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        -736
+      ],
+      "id": "7bb6dff2-ecac-47f1-bfe2-9eda5a3fa98e",
+      "name": "Данные заявки"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2688,
+        -656
+      ],
+      "id": "b786fab4-74c5-451a-9278-5b8b0063999f",
+      "name": "Пауза 1 секунда"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "max-facade-pro-demo",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        -656
+      ],
+      "id": "6df2aac9-8d6e-4833-b7bd-e604d70a26fb",
+      "name": "Вебхук MAX"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://platform-api2.max.ru/messages?user_id=REPLACE_WITH_MANAGER_MAX_ID",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Сценарий бота').first().json.manager_outgoing }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1120,
+        -736
+      ],
+      "id": "ddea4e9f-b1e6-4201-8913-db25be59a297",
+      "name": "Уведомить менеджера",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SESSIONS_TABLE_ID",
+          "mode": "id"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "user_id",
+              "keyValue": "=$json.user_id"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "user_id",
+              "displayName": "user_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "stage",
+              "displayName": "stage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "service",
+              "displayName": "service",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "connection_method",
+              "displayName": "connection_method",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "username",
+              "displayName": "username",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_event_id",
+              "displayName": "last_event_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "application_id",
+              "displayName": "application_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "manager_notified",
+              "displayName": "manager_notified",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1792,
+        -656
+      ],
+      "id": "e2ded3d8-6c24-497d-b033-4c4d94f57524",
+      "name": "Сохранить сессию"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_LEADS_TABLE_ID",
+          "mode": "id"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "application_id",
+              "keyValue": "=$json.application_id"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "application_id",
+              "displayName": "application_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "service",
+              "displayName": "service",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "connection_method",
+              "displayName": "connection_method",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "username",
+              "displayName": "username",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "user_id",
+              "displayName": "user_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "manager_notified",
+              "displayName": "manager_notified",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2464,
+        -736
+      ],
+      "id": "d668d409-c449-4f0c-9fd8-fbc6efa2c964",
+      "name": "Сохранить заявку"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://platform-api2.max.ru/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "user_id",
+              "value": "=$('Сценарий бота').first().json.user_id"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Сценарий бота').first().json.client_outgoing }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2912,
+        -656
+      ],
+      "id": "4efa8871-e867-4cd8-a413-81e806d252f2",
+      "name": "Ответ клиенту",
+      "retryOnFail": true
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Сценарий бота": {
+      "main": [
+        [
+          {
+            "node": "Есть новая заявка?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Есть новая заявка?": {
+      "main": [
+        [
+          {
+            "node": "Уведомить менеджера",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Данные сессии",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Завершить заявку": {
+      "main": [
+        [
+          {
+            "node": "Данные сессии",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Сохранить заявку?": {
+      "main": [
+        [
+          {
+            "node": "Данные заявки",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Пауза 1 секунда",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Пауза 1 секунда": {
+      "main": [
+        [
+          {
+            "node": "Ответ клиенту",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Вебхук MAX": {
+      "main": [
+        [
+          {
+            "node": "Нормализация события",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Уведомить менеджера": {
+      "main": [
+        [
+          {
+            "node": "Завершить заявку",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Нормализация события": {
+      "main": [
+        [
+          {
+            "node": "Получить сессию",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Получить сессию": {
+      "main": [
+        [
+          {
+            "node": "Сценарий бота",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Данные сессии": {
+      "main": [
+        [
+          {
+            "node": "Сохранить сессию",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Сохранить сессию": {
+      "main": [
+        [
+          {
+            "node": "Сохранить заявку?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Данные заявки": {
+      "main": [
+        [
+          {
+            "node": "Сохранить заявку",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Сохранить заявку": {
+      "main": [
+        [
+          {
+            "node": "Пауза 1 секунда",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "nodeGroups": []
+}
