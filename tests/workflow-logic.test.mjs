@@ -168,7 +168,7 @@ function testCallbackBranch(count = 200) {
     state = one(runScenario(contactEvent, state));
     assert.equal(state.is_lead, true);
     assert.ok(state.manager_outgoing.text.includes(state.phone));
-    assert.ok(state.client_outgoing.text.includes('Менеджер Наталья свяжется'));
+    assert.ok(state.client_outgoing.text.includes('Менеджер REPLACE_WITH_MANAGER_NAME свяжется'));
     assert.equal(runScenario(contactEvent, state).length, 0);
 
     state = finalize(state);
