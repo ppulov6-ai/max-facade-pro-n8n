@@ -1,6 +1,9 @@
+node_modules/
 .env
 .env.*
+!.env.example
 *.log
-credentials*
-secrets*
-node_modules/
+*.sqlite
+*.db
+credentials.json
+private/
