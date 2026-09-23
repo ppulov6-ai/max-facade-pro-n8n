@@ -106,6 +106,24 @@ const one = (items) => {
   return items[0].json;
 };
 
+function testWorkflowConfiguration() {
+  const nodes = Object.fromEntries(workflow.nodes.map((node) => [node.name, node]));
+  const answer = nodes['Ответ клиенту'];
+  const session = nodes['Сохранить сессию'];
+  const manager = nodes['Уведомить менеджера'];
+
+  // Data Table upsert may return several matching rows for one user.
+  // The downstream HTTP node must execute once for the whole batch.
+  assert.equal(session.parameters.operation, 'upsert');
+  assert.equal(answer.executeOnce, true);
+  assert.equal(answer.parameters.url, 'https://platform-api2.max.ru/messages');
+  assert.equal(answer.parameters.queryParameters.parameters[0].name, 'user_id');
+  assert.equal(manager.parameters.url,
+    'https://platform-api2.max.ru/messages?user_id=REPLACE_WITH_MANAGER_MAX_ID');
+  assert.equal(workflow.active, false);
+  assert.ok(code['Сценарий бота'].includes('[Написать менеджеру в MAX](REPLACE_WITH_MANAGER_MAX_URL)'));
+}
+
 function testNormalization() {
   let event = one(normalize(botStarted(11, 1001)));
   assert.equal(event.event_type, 'bot_started');
@@ -190,6 +208,7 @@ function testSelfContactBranch(start, count = 200) {
     assert.equal(state.is_lead, true);
     assert.equal(state.connection_method, 'Свяжется самостоятельно');
     assert.ok(state.client_outgoing.text.includes('REPLACE_WITH_MANAGER_PHONE'));
+    assert.ok(state.client_outgoing.text.includes('[Написать менеджеру в MAX](REPLACE_WITH_MANAGER_MAX_URL)'));
     assert.ok(state.manager_outgoing.text.includes('Телефон клиента не запрашивался'));
     assert.equal(runScenario(selfEvent, state).length, 0);
 
@@ -202,11 +221,34 @@ function testSelfContactBranch(start, count = 200) {
   }
 }
 
+function testNavigation() {
+  const user = 505050;
+  let state = one(runScenario(one(normalize(botStarted(user, 50505001)))));
+  state = one(runScenario(one(normalize(callback(user, 'nav-service', 'service_kitchen'))), state));
+  assert.equal(state.stage, 'await_connection_method');
+  state = one(runScenario(one(normalize(callback(user, 'nav-back', 'nav_back'))), state));
+  assert.equal(state.stage, 'await_service');
+  assert.equal(state.service, '');
+
+  state = one(runScenario(one(normalize(callback(user, 'nav-service-2', 'service_other'))), state));
+  state = one(runScenario(one(normalize(callback(user, 'nav-method', 'method_callback'))), state));
+  assert.equal(state.stage, 'await_contact');
+  state = one(runScenario(one(normalize(callback(user, 'nav-back-contact', 'nav_back'))), state));
+  assert.equal(state.stage, 'await_connection_method');
+  assert.equal(state.connection_method, '');
+
+  state = one(runScenario(one(normalize(callback(user, 'nav-home', 'nav_home'))), state));
+  assert.equal(state.stage, 'await_service');
+  assert.equal(state.service, '');
+}
+
 const started = Date.now();
+testWorkflowConfiguration();
 for (let pass = 0; pass < 2; pass += 1) {
   testNormalization();
   testCallbackBranch(200);
   testSelfContactBranch(1001 + pass * 1000, 200);
+  testNavigation();
 }
 
 console.log(JSON.stringify({
